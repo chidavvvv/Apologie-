@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Are you still mad at me?</title>
+<style>
+  :root{
+    --bg1:#ffecd2;
+    --bg2:#fcb69f;
+    --card:#ffffff;
+    --accent:#ff6b81;
+    --muted:#666;
+  }
+  html,body{
+    height:100%;
+    margin:0;
+    font-family:Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    background: linear-gradient(135deg,var(--bg1) 0%, var(--bg2) 100%);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+
+  .card{
+    width:min(720px, 92vw);
+    background:linear-gradient(180deg, rgba(255,255,255,0.95), rgba(255,255,255,0.9));
+    border-radius:20px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.12);
+    padding:36px;
+    text-align:center;
+    position:relative;
+    overflow:hidden;
+  }
+
+  h1{
+    margin:0 0 8px 0;
+    font-size:28px;
+    color: #2b2b2b;
+  }
+  p.lead{
+    margin:0 0 26px 0;
+    color:var(--muted);
+    font-size:15px;
+  }
+  .buttons{
+    position:relative;
+    height:200px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:24px;
+    margin-top:6px;
+  }
+
+  button{
+    --bsize:140px;
+    width:var(--bsize);
+    height:56px;
+    border-radius:999px;
+    border:none;
+    cursor:pointer;
+    font-weight:600;
+    font-size:16px;
+    transition:transform .18s cubic-bezier(.2,.9,.3,1), box-shadow .12s;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+    user-select:none;
+    position:relative;
+  }
+
+  .yes{
+    background: linear-gradient(90deg,#ff8fab,#ff6b81);
+    color:white;
+  }
+  .yes:active{ transform:translateY(2px) scale(.995); }
+
+  .no{
+    background: linear-gradient(90deg,#fff,#fff);
+    border:2px solid #f0f0f0;
+    color:#333;
+  }
+  .no:focus{ outline:3px solid rgba(255,107,129,0.15); }
+
+  /* absolutely positionable wrapper for the no button (so we can move it freely) */
+  .movable{
+    position:absolute;
+    left:50%;
+    top:50%;
+    transform:translate(-50%,-50%);
+    pointer-events:auto;
+  }
+
+  /* small footer */
+  .hint{
+    margin-top:18px;
+    color:#9b9b9b;
+    font-size:13px;
+  }
+
+  /* confetti pieces */
+  .confetti-piece{
+    position:absolute;
+    width:10px;
+    height:14px;
+    opacity:0;
+    pointer-events:none;
+    transform-origin:center;
+    will-change: transform, opacity, top, left;
+  }
+
+  /* small hearts */
+  .heart{
+    position:absolute;
+    font-size:22px;
+    pointer-events:none;
+    will-change: transform, opacity;
+  }
+
+  @media (max-width:480px){
+    .buttons{ height:160px; gap:14px; }
+    button{ width:120px; height:50px; }
+  }
+</style>
+</head>
+<body>
+  <main class="card" role="main" aria-labelledby="q">
+    <h1 id="q">Are you still mad at me?</h1>
+    <p class="lead">I really want us to be okay. Please tell me the truth ❤</p>
+
+    <div class="buttons" id="stage" aria-hidden="false">
+      <!-- Yes button stays in normal flow -->
+      <button class="yes" id="yesBtn" aria-label="Yes, I'm not mad">Yes — I'm not mad</button>
+
+      <!-- No button is inside movable wrapper so we can place it anywhere -->
+      <div class="movable" id="noWrap" style="left:66%; top:50%;">
+        <button class="no" id="noBtn" aria-label="No, I'm still mad">No — I'm mad</button>
+      </div>
+    </div>
+
+    <p class="hint">Tip: move your mouse to try and click "No" 😅</p>
+    <!-- area for confetti and hearts -->
+    <div id="fx" aria-hidden="true" style="position:absolute; inset:0; pointer-events:none;"></div>
+  </main>
+
+<script>
+/*
+  Behavior:
+   - When mouse moves over the no button area, the no button jumps to a random valid position inside the stage.
+   - On touch devices, trying to tap "No" swaps positions with "Yes".
+   - Clicking Yes triggers a friendly message + confetti.
+*/
+
+(function(){
+  const noWrap = document.getElementById('noWrap');
+  const noBtn = document.getElementById('noBtn');
+  const yesBtn = document.getElementById('yesBtn');
+  const stage = document.getElementById('stage');
+  const fx = document.getElementById('fx');
+  let moving = false;
+
+  // utility: get bounding sizes
+  function rect(el){ return el.getBoundingClientRect(); }
+
+  // compute a safe random position inside stage for the center of noWrap
+  function randomPositionAvoiding(elRect, avoidRects = []) {
+    const s = rect(stage);
+    const wrapW = elRect.width;
+    const wrapH = elRect.height;
+
+    // allowable center area (we position using top/left % of stage)
+    const pad = 8; // small padding so it doesn't touch edges
+    const minX = s.left + pad;
+    const maxX = s.right - wrapW - pad;
+    const minY = s.top + pad;
+    const maxY = s.bottom - wrapH - pad;
+
+    // try a few times to find a position not too close to any avoidRect
+    for (let tries = 0; tries < 40; tries++) {
+      const x = Math.random() * (maxX - minX) + minX;
+      const y = Math.random() * (maxY - minY) + minY;
+      const candidate = {left: x, top: y, right: x + wrapW, bottom: y + wrapH};
+      // ensure not overlapping avoid rects (like the yes button)
+      let ok = true;
+      for (const a of avoidRects) {
+        const padAvoid = 24;
+        if (!(candidate.right + padAvoid < a.left ||
+              candidate.left - padAvoid > a.right ||
+              candidate.bottom + padAvoid < a.top ||
+              candidate.top - padAvoid > a.bottom)) {
+          ok = false; break;
+        }
+      }
+      if (ok) return {x: x - s.left, y: y - s.top}; // positions relative to stage
+    }
+    // fallback: center
+    return {x: (s.width - wrapW)/2, y: (s.height - wrapH)/2};
+  }
+
+  // move the noWrap to a random spot away from the yes button and cursor
+  function jumpAway(ev) {
+    if (moving) return;
+    moving = true;
+    const wrapRect = rect(noWrap);
+    const yesRect = rect(yesBtn);
+    const stageRect = rect(stage);
+
+    // calculate new relative pos (pixels from stage left/top)
+    const pos = randomPositionAvoiding(wrapRect, [yesRect]);
+    // convert to percentage for responsive behaviour
+    const leftPct = (pos.x / stageRect.width) * 100;
+    const topPct = (pos.y / stageRect.height) * 100;
+
+    noWrap.style.transition = 'transform 0.18s cubic-bezier(.2,.9,.3,1), left .18s, top .18s';
+    noWrap.style.left = leftPct + '%';
+    noWrap.style.top = topPct + '%';
+
+    // release lock after animation
+    setTimeout(()=> { moving = false; noWrap.style.transition = ''; }, 220);
+  }
+
+  // Mouseover + mousemove handlers to trigger jump
+  noBtn.addEventListener('mouseenter', jumpAway);
+  noBtn.addEventListener('mousemove', function(e){
+    // if cursor gets closer than 60px to the center of the no button, move it
+    const c = rect(noWrap);
+    const cx = c.left + c.width/2;
+    const cy = c.top + c.height/2;
+    const dx = e.clientX - cx;
+    const dy = e.clientY - cy;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    if (dist < 80) jumpAway();
+  });
+
+  // Also handle focus (keyboard): send it away if someone tabs to it
+  noBtn.addEventListener('focus', jumpAway);
+
+  // touch devices: swap positions when trying to tap no
+  let isTouchDevice = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+  if (isTouchDevice) {
+    noBtn.addEventListener('touchstart', function(ev){
+      ev.preventDefault(); // prevent immediate click
+      swapPositions();
+    }, {passive:false});
+  }
+
+  // swapping positions with yes (used on touch or as fallback)
+  function swapPositions() {
+    const yesRect = rect(yesBtn);
+    const noRect = rect(noWrap);
+
+    // compute positions relative to stage
+    const s = rect(stage);
+    const yesRel = {left: yesRect.left - s.left, top: yesRect.top - s.top};
+    const noRel  = {left: noRect.left - s.left, top: noRect.top - s.top};
+
+    // animate swap
+    noWrap.style.transition = 'left .22s ease, top .22s ease';
+    yesBtn.style.transition = 'transform .22s ease';
+    // place noWrap where yes was (centered)
+    noWrap.style.left = ((yesRel.left) / s.width) * 100 + '%';
+    noWrap.style.top  = ((yesRel.top) / s.height) * 100 + '%';
+
+    // move yes to the previous no location using a temporary transform
+    yesBtn.animate([
+      { transform: 'translate(0,0)' },
+      { transform: translate(${(noRel.left - yesRel.left)}px, ${(noRel.top - yesRel.top)}px) }
+    ], { duration: 220, easing: 'ease' });
+
+    setTimeout(()=> {
+      // reset any inline transforms so layout remains logical
+      yesBtn.style.transform = 'none';
+      noWrap.style.transition = '';
+    }, 240);
+  }
+
+  // clicking Yes: show message + confetti
+  yesBtn.addEventListener('click', function(){
+    showLoveMessage();
+    burstConfetti();
+  });
+
+  // small sweet message overlay inside the card
+  function showLoveMessage(){
+    const card = document.querySelector('.card');
+    const msg = document.createElement('div');
+    msg.style.position = 'absolute';
+    msg.style.left = '50%';
+    msg.style.top = '50%';
+    msg.style.transform = 'translate(-50%,-50%)';
+    msg.style.background = 'rgba(255,255,255,0.98)';
+    msg.style.padding = '26px';
+    msg.style.borderRadius = '14px';
+    msg.style.boxShadow = '0 18px 50px rgba(0,0,0,0.12)';
+    msg.style.zIndex = 30;
+    msg.style.textAlign = 'center';
+    msg.innerHTML = '<h2 style="margin:0 0 8px 0;color:#333">Yay 🥰</h2><p style="margin:0;color:#555">Thank you — You just made my day. Can we hug later?</p>';
+    card.appendChild(msg);
+
+    // animate hearts
+    for (let i=0;i<6;i++){
+      spawnHeart();
+    }
+
+    setTimeout(()=> {
+      msg.style.transition = 'opacity .4s';
+      msg.style.opacity = '0';
+      setTimeout(()=> msg.remove(), 420);
+    }, 3600);
+  }
+
+  // confetti implementation: small colorful bars that fall and spin
+  function burstConfetti(){
+    const colors = ['#ff6b81','#ffd166','#8fd3fe','#c7f9cc','#c29cff','#ffb3e6'];
+    const count = 28;
+    const stageRect = rect(stage);
+
+    for (let i=0;i<count;i++){
+      const piece = document.createElement('div');
+      piece.className = 'confetti-piece';
+      piece.style.left = (Math.random() * 90) + '%';
+      piece.style.top = (Math.random() * 10) + '%';
+      piece.style.background = colors[Math.floor(Math.random()*colors.length)];
+      piece.style.width = (6 + Math.random()*10) + 'px';
+      piece.style.height = (10 + Math.random()*18) + 'px';
+      piece.style.opacity = '1';
+      piece.style.transform = rotate(${Math.random()*360}deg) translateY(0);
+      fx.appendChild(piece);
+
+      const dx = (Math.random()-0.5) * 140;
+      const dy = 180 + Math.random()*260;
+      const rot = (Math.random()-0.5) * 1080;
+
+      piece.animate([
+        { transform: translateY(0px) rotate(0deg), opacity:1 },
+        { transform: translate(${dx}px, ${dy}px) rotate(${rot}deg), opacity:0.15 }
+      ], { duration: 1200 + Math.random()*800, easing: 'cubic-bezier(.2,.8,.2,1)' });
+
+      setTimeout(()=> piece.remove(), 2200);
+    }
+  }
+
+  // spawn small floating hearts
+  function spawnHeart(){
+    const heart = document.createElement('div');
+    heart.className = 'heart';
+    heart.style.left = (30 + Math.random()*40) + '%';
+    heart.style.bottom = '-10px';
+    heart.style.opacity = '0';
+    heart.style.zIndex = 40;
+    heart.textContent = '💖';
+    fx.appendChild(heart);
+
+    const dur = 2200 + Math.random()*1200;
+    heart.animate([
+      { transform: translateY(0) scale(0.7), opacity:0 },
+      { transform: translateY(-120px) scale(1), opacity:1 },
+      { transform: translateY(-260px) scale(0.8), opacity:0 }
+    ], { duration: dur, easing: 'cubic-bezier(.2,.9,.22,1)' });
+
+    setTimeout(()=> heart.remove(), dur+60);
+  }
+
+  // small accessibility: keyboard user clicking "No" should be prevented and moved away
+  noBtn.addEventListener('click', function(e){
+    e.preventDefault();
+    jumpAway();
+  });
+
+  // initial gentle nudge: move "no" slightly when page loads
+  window.addEventListener('load', function(){
+    setTimeout(()=> jumpAway(), 700);
+  });
+
+})();
+</script>
+</body>
+</html>
